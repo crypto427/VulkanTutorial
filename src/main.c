@@ -1,36 +1,56 @@
 #include <stdio.h>
 
+#include "GLFW/glfw3.h"
+
+#define WIDTH 800
+#define HEIGHT 600
+
 void run();
-void initWindow();
+GLFWwindow* initWindow();
 void initVulkan();
-void mainLoop();
-void cleanup();
+void mainLoop(GLFWwindow* window);
+void cleanup(GLFWwindow* window);
 
 int main() {
-    printf("Hello world!\n");
+    run();
     return 0;
 }
 
 void run()
 {
-    initWindow();
+    GLFWwindow *window = NULL;
+    window = initWindow();
+    if(!window)
+    {
+        // Failed to load window logic
+    }
     initVulkan();
-    mainLoop();
-    cleanup();
+    mainLoop(window);
+    cleanup(window);
 }
 
-void initWindow()
+GLFWwindow* initWindow()
 {
+    glfwInit();
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    return glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", NULL, NULL);
 }
 
 void initVulkan()
 {
 }
 
-void mainLoop()
+void mainLoop(GLFWwindow* window)
 {
+    while (!glfwWindowShouldClose(window)) {
+        glfwPollEvents();
+    }
 }
 
-void cleanup()
+void cleanup(GLFWwindow* window)
 {
+    glfwDestroyWindow(window);
+
+    glfwTerminate();
 }
