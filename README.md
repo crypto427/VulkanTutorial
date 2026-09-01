@@ -1,2 +1,2 @@
 Compilation instructions:
-clang -std=c17 -Wall -Wextra -Werror src/main.c -o bin/main.exe -L.lib -lglfw3 -luser32 -lgdi32 -lshell32
+clang -std=c17 -Wall -Wextra -Werror -DVK_USE_PLATFORM_WIN32_KHR -IC:/VulkanSDK/1.4.357.0/Include src/main.c -o bin/main.exe -L.lib -lglfw3 -LC:/VulkanSDK/1.4.357.0/Lib -lvulkan-1 -luser32 -lgdi32 -lshell32
