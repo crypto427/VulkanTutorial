@@ -2,3 +2,6 @@
 bin
 .vscode
 src/Include
+src/fromMemory.c
+review.txt
+src/main.cpp
