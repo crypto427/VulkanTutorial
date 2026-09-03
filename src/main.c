@@ -24,14 +24,14 @@ const uint32_t numValidationLayers = 1;
 typedef struct HelloTriangleApplication {
     GLFWwindow *window;
     VkInstance instance;
+    VkDebugUtilsMessengerEXT debugMessenger;
     VkPhysicalDevice physicalDevice;
     VkDevice device;
-    VkDebugUtilsMessengerEXT debugMessenger;
 } HelloTriangleApplication;
 
 void run(HelloTriangleApplication* app);
 GLFWwindow* initWindow();
-void initVulkan(VkInstance* instance, VkDebugUtilsMessengerEXT* debugMessenger);
+void initVulkan(HelloTriangleApplication* app);
 void mainLoop(GLFWwindow* window);
 void cleanup(HelloTriangleApplication* app);
 
@@ -43,6 +43,9 @@ const char** getRequiredInstanceExtensions(uint32_t *out_total);
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type, const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData);
 static const char* severityToString(VkDebugUtilsMessageSeverityFlagBitsEXT severity);
 void setupDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT* debugMessenger);
+
+
+void pickPhysicalDevice(VkInstance instance, VkPhysicalDevice* physicalDevice);
 
 
 int main() {
@@ -59,7 +62,7 @@ void run(HelloTriangleApplication* app)
         fprintf(stderr, "Failed to create window\n");
         exit(1);
     }
-    initVulkan(&app->instance, &app->debugMessenger);
+    initVulkan(app);
     mainLoop(app->window);
     cleanup(app);
 }
@@ -72,10 +75,11 @@ GLFWwindow* initWindow()
     return glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", NULL, NULL);
 }
 
-void initVulkan(VkInstance* instance, VkDebugUtilsMessengerEXT* debugMessenger)
+void initVulkan(HelloTriangleApplication* app)
 {
-    createInstance(instance);
-    setupDebugMessenger(*instance, debugMessenger);
+    createInstance(&app->instance);
+    setupDebugMessenger(app->instance, &app->debugMessenger);
+    pickPhysicalDevice(app->instance, &app->physicalDevice);
 }
 
 void mainLoop(GLFWwindow* window)
@@ -251,4 +255,167 @@ void setupDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT* debugMes
         &debugUtilsMessengerCreateInfoEXT, 
         NULL, 
         debugMessenger);
+}
+
+
+void pickPhysicalDevice(VkInstance instance, VkPhysicalDevice* physicalDevice)
+{
+    uint32_t physicalDeviceCount = 0;
+    vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
+    if(physicalDeviceCount == 0) {
+        fprintf(stderr, "Failed to find GPUs with Vulkan support!\n");
+        exit(1);
+    }
+    VkPhysicalDevice *physicalDevices = malloc(physicalDeviceCount * sizeof(VkPhysicalDevice));
+    if(!physicalDevices) {
+        fprintf(stderr, "Failed to allocate memory to physicalDevices array!\n");
+        exit(1);
+    } 
+    vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices);
+
+    VkPhysicalDeviceProperties2 *physicalDeviceProperties = malloc(sizeof(VkPhysicalDeviceProperties2));
+    if(!physicalDeviceProperties) {
+        fprintf(stderr, "Failed to malloc *physicalDeviceProperties\n");
+        exit(1);
+    }
+
+    physicalDeviceProperties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    physicalDeviceProperties->pNext = NULL;
+
+    VkPhysicalDeviceFeatures2 *pFeatures = malloc(sizeof(VkPhysicalDeviceFeatures2));
+    if(!pFeatures) {
+        fprintf(stderr, "Failed to malloc *pFeatures\n");
+        exit(1);
+    }
+
+    pFeatures->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    pFeatures->pNext = NULL;
+
+    int selectedDeviceIndex = -1, highest_score = 0;
+    for(uint32_t i = 0; i < physicalDeviceCount; i++){
+        int score = 0;
+        vkGetPhysicalDeviceProperties2(physicalDevices[i], physicalDeviceProperties);
+        fprintf(stdout, "GPU: %s\n", physicalDeviceProperties->properties.deviceName);
+        if(!(physicalDeviceProperties->properties.apiVersion >= VK_API_VERSION_1_3)) {
+            fprintf(stdout, "GPU api version not >= 1.3 \n");
+            continue;
+        }
+
+        uint32_t pQueueFamilyCount;
+        
+        vkGetPhysicalDeviceQueueFamilyProperties2(physicalDevices[i], &pQueueFamilyCount, NULL);
+
+        VkQueueFamilyProperties2 *pQueueFamilyProperties = malloc(pQueueFamilyCount * sizeof(VkQueueFamilyProperties2));
+
+        for(uint32_t j = 0; j < pQueueFamilyCount; j++) {
+            pQueueFamilyProperties[j].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
+            pQueueFamilyProperties[j].pNext = NULL;
+        }
+
+        vkGetPhysicalDeviceQueueFamilyProperties2(physicalDevices[i], &pQueueFamilyCount, pQueueFamilyProperties);
+
+        int supportsGraphics = 0;
+        for(uint32_t j = 0; j < pQueueFamilyCount; j++) {
+            if (pQueueFamilyProperties[j].queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                    supportsGraphics = 1;
+                    fprintf(stdout, "Device supported!\n");
+                    break;
+            }
+        }
+
+        free(pQueueFamilyProperties);
+        if(supportsGraphics == 0) {
+            fprintf(stdout, "Queue families not supported on this gpu");
+            continue;
+        }
+
+        // Required extension check
+
+        uint32_t requiredDeviceExtensionCount = 1;
+        const char* requiredDeviceExtension[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        
+
+        uint32_t deviceExtensionCount = 0;
+        vkEnumerateDeviceExtensionProperties(physicalDevices[i], NULL, &deviceExtensionCount, NULL);
+
+        VkExtensionProperties *deviceExtensions = malloc(deviceExtensionCount * sizeof(VkExtensionProperties));
+        vkEnumerateDeviceExtensionProperties(physicalDevices[i], NULL, &deviceExtensionCount, deviceExtensions);
+
+        int allExtensionsSupported = 1;
+
+        for (uint32_t j = 0; j < requiredDeviceExtensionCount; j++) {
+            int extSupported = 0;
+            for (uint32_t d = 0; d < deviceExtensionCount; d++) {
+                if (strcmp(deviceExtensions[d].extensionName, requiredDeviceExtension[j]) == 0) {
+                    extSupported = 1;
+                    break;
+                }
+            }
+            if(extSupported == 0) {
+                allExtensionsSupported = 0;
+                break;
+            }
+        }
+
+        free(deviceExtensions);
+
+        if (!allExtensionsSupported) {
+            continue;
+        }
+
+        // Required features
+        VkPhysicalDeviceVulkan11Features vulkan11Features = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+            .pNext = NULL,
+        };
+        
+        VkPhysicalDeviceVulkan13Features vulkan13Features = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+            .pNext = &vulkan11Features,
+        };
+
+        VkPhysicalDeviceExtendedDynamicStateFeaturesEXT edsFeatures = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
+            .pNext = &vulkan13Features
+        };
+
+        VkPhysicalDeviceFeatures2 features2 = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &edsFeatures,
+        };
+
+        vkGetPhysicalDeviceFeatures2(physicalDevices[i], &features2);
+
+        int supportsRequiredFeatures = vulkan11Features.shaderDrawParameters && vulkan13Features.dynamicRendering && edsFeatures.extendedDynamicState;
+
+        if (!supportsRequiredFeatures)
+            continue;
+
+        vkGetPhysicalDeviceFeatures2(physicalDevices[i], pFeatures);
+
+        if(physicalDeviceProperties->properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+            score += 1000;
+        score += physicalDeviceProperties->properties.limits.maxImageDimension2D;
+
+        if (!pFeatures->features.geometryShader) {
+            fprintf(stdout, "geometryShader not supported!\n");
+            continue;
+        }
+        fprintf(stdout, "Made it here!\n");
+        if(highest_score <= score) {
+            selectedDeviceIndex = i;
+            highest_score = score;
+        }
+    }
+
+    if(selectedDeviceIndex == -1) {
+        fprintf(stderr, "Failed to find adequate physical device\n");
+        exit(1);
+    }
+    else {
+        *physicalDevice = physicalDevices[selectedDeviceIndex];
+    }
+    
+    free(physicalDeviceProperties);
+    free(pFeatures);
 }
