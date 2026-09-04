@@ -1,9 +1,14 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
+#define VK_USE_PLATFORM_WIN32_KHR
 #include "Include/vulkan/vulkan.h"
 
 #define GLFW_INCLUDE_VULKAN
 #include "GLFW/glfw3.h"
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include "GLFW/glfw3native.h"
 
 #define WIDTH 800
 #define HEIGHT 600
@@ -29,6 +34,7 @@ typedef struct HelloTriangleApplication {
     VkDevice device;
     VkPhysicalDeviceFeatures2 deviceFeatures;
     VkQueue graphicsQueue;
+    VkSurfaceKHR surface;
 } HelloTriangleApplication;
 
 void run(HelloTriangleApplication* app);
@@ -51,6 +57,9 @@ void pickPhysicalDevice(VkInstance instance, VkPhysicalDevice* physicalDevice);
 
 
 void createLogicalDevice(HelloTriangleApplication *app);
+
+
+void createSurface(HelloTriangleApplication *app);
 
 
 int main() {
@@ -84,6 +93,7 @@ void initVulkan(HelloTriangleApplication* app)
 {
     createInstance(&app->instance);
     setupDebugMessenger(app->instance, &app->debugMessenger);
+    createSurface(app);
     pickPhysicalDevice(app->instance, &app->physicalDevice);
     createLogicalDevice(app);
 }
@@ -104,6 +114,8 @@ void cleanup(HelloTriangleApplication* app)
     }
 
     vkDestroyDevice(app->device, NULL);
+
+    vkDestroySurfaceKHR(app->instance, app->surface, NULL);
 
     vkDestroyInstance(app->instance, NULL);
 
@@ -443,16 +455,18 @@ void createLogicalDevice(HelloTriangleApplication *app)
 
     vkGetPhysicalDeviceQueueFamilyProperties2(app->physicalDevice, &queueFamilyCount, queueFamilies);
 
-    int queueFamilyWithGraphicsBitSetIndex = -1;
+    uint32_t queueFamilyIndex = (uint32_t)(~0);
     for (uint32_t i = 0; i < queueFamilyCount; i++) {
-        if (queueFamilies[i].queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-            queueFamilyWithGraphicsBitSetIndex = i;
+        VkBool32 supportsPresent;
+        vkGetPhysicalDeviceSurfaceSupportKHR(app->physicalDevice, i, app->surface, &supportsPresent);
+        if (queueFamilies[i].queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT && supportsPresent == VK_TRUE) {
+            queueFamilyIndex = i;
             break;
         }
     }
 
-    if(queueFamilyWithGraphicsBitSetIndex == -1) {
-        fprintf(stderr, "No queueFamily with Graphics\n");
+    if(queueFamilyIndex == (uint32_t)(~0)) {
+        fprintf(stderr, "Could not find a queue for graphics and present -> terminating\n");
         exit(1);
     }
 
@@ -483,7 +497,7 @@ void createLogicalDevice(HelloTriangleApplication *app)
 
     VkDeviceQueueCreateInfo deviceQueueCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .queueFamilyIndex = queueFamilyWithGraphicsBitSetIndex,
+        .queueFamilyIndex = queueFamilyIndex,
         .pNext = NULL,
         .queueCount = 1,
         .pQueuePriorities = &queuePriority,
@@ -502,7 +516,22 @@ void createLogicalDevice(HelloTriangleApplication *app)
     };
 
     vkCreateDevice(app->physicalDevice, &deviceCreateInfo, NULL, &app->device);
-    vkGetDeviceQueue(app->device, queueFamilyWithGraphicsBitSetIndex, 0, &app->graphicsQueue);
+    vkGetDeviceQueue(app->device, queueFamilyIndex, 0, &app->graphicsQueue);
 
     free(queueFamilies);
+}
+
+void createSurface(HelloTriangleApplication *app)
+{
+    VkWin32SurfaceCreateInfoKHR createInfo = {
+        .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+        .pNext = NULL,
+        .flags = 0,
+        .hinstance = GetModuleHandle(NULL),
+        .hwnd = glfwGetWin32Window(app->window),
+    };
+    if(vkCreateWin32SurfaceKHR(app->instance, &createInfo, NULL, &app->surface) != VK_SUCCESS) {
+        fprintf(stderr, "vkCreateWin32SurfaceKHR failed to create window surface!\n");
+        exit(1);
+    }
 }
