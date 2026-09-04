@@ -27,6 +27,8 @@ typedef struct HelloTriangleApplication {
     VkDebugUtilsMessengerEXT debugMessenger;
     VkPhysicalDevice physicalDevice;
     VkDevice device;
+    VkPhysicalDeviceFeatures2 deviceFeatures;
+    VkQueue graphicsQueue;
 } HelloTriangleApplication;
 
 void run(HelloTriangleApplication* app);
@@ -46,6 +48,9 @@ void setupDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT* debugMes
 
 
 void pickPhysicalDevice(VkInstance instance, VkPhysicalDevice* physicalDevice);
+
+
+void createLogicalDevice(HelloTriangleApplication *app);
 
 
 int main() {
@@ -80,6 +85,7 @@ void initVulkan(HelloTriangleApplication* app)
     createInstance(&app->instance);
     setupDebugMessenger(app->instance, &app->debugMessenger);
     pickPhysicalDevice(app->instance, &app->physicalDevice);
+    createLogicalDevice(app);
 }
 
 void mainLoop(GLFWwindow* window)
@@ -96,6 +102,9 @@ void cleanup(HelloTriangleApplication* app)
             (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(app->instance, "vkDestroyDebugUtilsMessengerEXT");
         vkDestroyDebugUtilsMessengerEXT(app->instance, app->debugMessenger, NULL);
     }
+
+    vkDestroyDevice(app->device, NULL);
+
     vkDestroyInstance(app->instance, NULL);
 
     glfwDestroyWindow(app->window);
@@ -418,4 +427,82 @@ void pickPhysicalDevice(VkInstance instance, VkPhysicalDevice* physicalDevice)
     
     free(physicalDeviceProperties);
     free(pFeatures);
+}
+
+void createLogicalDevice(HelloTriangleApplication *app)
+{
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties2(app->physicalDevice, &queueFamilyCount, NULL);
+
+    VkQueueFamilyProperties2 *queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties2));
+
+    for (uint32_t i = 0; i < queueFamilyCount; i++) {
+        queueFamilies[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
+        queueFamilies[i].pNext = NULL;
+    }
+
+    vkGetPhysicalDeviceQueueFamilyProperties2(app->physicalDevice, &queueFamilyCount, queueFamilies);
+
+    int queueFamilyWithGraphicsBitSetIndex = -1;
+    for (uint32_t i = 0; i < queueFamilyCount; i++) {
+        if (queueFamilies[i].queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            queueFamilyWithGraphicsBitSetIndex = i;
+            break;
+        }
+    }
+
+    if(queueFamilyWithGraphicsBitSetIndex == -1) {
+        fprintf(stderr, "No queueFamily with Graphics\n");
+        exit(1);
+    }
+
+    VkPhysicalDeviceVulkan11Features vulkan11Features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = NULL,
+        .shaderDrawParameters = VK_TRUE,
+    };
+    
+    VkPhysicalDeviceVulkan13Features vulkan13Features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .pNext = &vulkan11Features,
+        .dynamicRendering = VK_TRUE,
+    };
+
+    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT edsFeatures = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
+        .pNext = &vulkan13Features,
+        .extendedDynamicState = VK_TRUE,
+    };
+
+    VkPhysicalDeviceFeatures2 features2 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &edsFeatures,
+    };
+
+    float queuePriority = 0.5f;
+
+    VkDeviceQueueCreateInfo deviceQueueCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = queueFamilyWithGraphicsBitSetIndex,
+        .pNext = NULL,
+        .queueCount = 1,
+        .pQueuePriorities = &queuePriority,
+    };
+
+    uint32_t requiredDeviceExtensionCount = 1;
+    const char* requiredDeviceExtension[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+    VkDeviceCreateInfo deviceCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext = &features2,
+        .queueCreateInfoCount = 1,
+        .pQueueCreateInfos = &deviceQueueCreateInfo,
+        .enabledExtensionCount = requiredDeviceExtensionCount,
+        .ppEnabledExtensionNames = requiredDeviceExtension,
+    };
+
+    vkCreateDevice(app->physicalDevice, &deviceCreateInfo, NULL, &app->device);
+    vkGetDeviceQueue(app->device, queueFamilyWithGraphicsBitSetIndex, 0, &app->graphicsQueue);
+
+    free(queueFamilies);
 }
